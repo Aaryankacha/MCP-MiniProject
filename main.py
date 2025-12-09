@@ -12,23 +12,23 @@ from core.cli import CliApp
 
 load_dotenv()
 
-# Anthropic Config
-claude_model = os.getenv("CLAUDE_MODEL", "")
-anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+# OpenAI Config (Swapped from Anthropic)
+openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")
+openai_api_key = os.getenv("OPENAI_API_KEY", "")
 
-
-assert claude_model, "Error: CLAUDE_MODEL cannot be empty. Update .env"
-assert anthropic_api_key, (
-    "Error: ANTHROPIC_API_KEY cannot be empty. Update .env"
+# Validation
+assert openai_api_key, (
+    "Error: OPENAI_API_KEY cannot be empty. Update .env"
 )
 
-
 async def main():
-    claude_service = Claude(model=claude_model)
+    # Initialize our OpenAI wrapper
+    claude_service = Claude(model=openai_model)
 
     server_scripts = sys.argv[1:]
     clients = {}
 
+    # Determine command based on environment (uv or python)
     command, args = (
         ("uv", ["run", "mcp_server.py"])
         if os.getenv("USE_UV", "0") == "1"
@@ -36,11 +36,13 @@ async def main():
     )
 
     async with AsyncExitStack() as stack:
+        # 1. Connect to the Document MCP Server
         doc_client = await stack.enter_async_context(
             MCPClient(command=command, args=args)
         )
         clients["doc_client"] = doc_client
 
+        # 2. Connect to any additional servers passed as arguments
         for i, server_script in enumerate(server_scripts):
             client_id = f"client_{i}_{server_script}"
             client = await stack.enter_async_context(
@@ -48,12 +50,14 @@ async def main():
             )
             clients[client_id] = client
 
+        # 3. Initialize Chat Logic
         chat = CliChat(
             doc_client=doc_client,
             clients=clients,
             claude_service=claude_service,
         )
 
+        # 4. Run CLI Interface
         cli = CliApp(chat)
         await cli.initialize()
         await cli.run()

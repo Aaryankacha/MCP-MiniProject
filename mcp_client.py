@@ -37,31 +37,38 @@ class MCPClient:
     def session(self) -> ClientSession:
         if self._session is None:
             raise ConnectionError(
-                "Client session not initialized or cache not populated. Call connect_to_server first."
+                "Client session not initialized. Call connect() first."
             )
         return self._session
 
     async def list_tools(self) -> list[types.Tool]:
-        # TODO: Return a list of tools defined by the MCP server
-        return []
+        result = await self.session().list_tools()
+        return result.tools
 
     async def call_tool(
         self, tool_name: str, tool_input: dict
     ) -> types.CallToolResult | None:
-        # TODO: Call a particular tool and return the result
-        return None
+        result = await self.session().call_tool(tool_name, arguments=tool_input)
+        return result
 
     async def list_prompts(self) -> list[types.Prompt]:
-        # TODO: Return a list of prompts defined by the MCP server
-        return []
+        result = await self.session().list_prompts()
+        return result.prompts
 
-    async def get_prompt(self, prompt_name, args: dict[str, str]):
-        # TODO: Get a particular prompt defined by the MCP server
-        return []
+    async def get_prompt(self, prompt_name: str, args: dict[str, str]):
+        result = await self.session().get_prompt(prompt_name, arguments=args)
+        return result.messages
 
-    async def read_resource(self, uri: str) -> Any:
-        # TODO: Read a resource, parse the contents and return it
-        return []
+    async def read_resource(self, uri: str) -> str:
+        """Reads a resource and returns its text content."""
+        result = await self.session().read_resource(uri)
+        # Combine all text content chunks
+        content = ""
+        if result.contents:
+            for item in result.contents:
+                if hasattr(item, "text"):
+                    content += item.text
+        return content
 
     async def cleanup(self):
         await self._exit_stack.aclose()
@@ -78,9 +85,8 @@ class MCPClient:
 # For testing
 async def main():
     async with MCPClient(
-        # If using Python without UV, update command to 'python' and remove "run" from args.
-        command="uv",
-        args=["run", "mcp_server.py"],
+        command="python", # Changed to python for standard testing
+        args=["mcp_server.py"],
     ) as _client:
         pass
 

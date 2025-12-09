@@ -1,11 +1,9 @@
 from typing import List, Tuple
 from mcp.types import Prompt, PromptMessage
-from anthropic.types import MessageParam
 
 from core.chat import Chat
 from core.claude import Claude
 from mcp_client import MCPClient
-
 
 class CliChat(Chat):
     def __init__(
@@ -15,7 +13,6 @@ class CliChat(Chat):
         claude_service: Claude,
     ):
         super().__init__(clients=clients, claude_service=claude_service)
-
         self.doc_client: MCPClient = doc_client
 
     async def list_prompts(self) -> list[Prompt]:
@@ -54,13 +51,19 @@ class CliChat(Chat):
 
         words = query.split()
         command = words[0].replace("/", "")
+        
+        # Guard clause if no doc_id is provided
+        doc_arg = words[1] if len(words) > 1 else ""
 
-        messages = await self.doc_client.get_prompt(
-            command, {"doc_id": words[1]}
-        )
-
-        self.messages += convert_prompt_messages_to_message_params(messages)
-        return True
+        try:
+            messages = await self.doc_client.get_prompt(
+                command, {"doc_id": doc_arg}
+            )
+            self.messages += convert_prompt_messages_to_dicts(messages)
+            return True
+        except Exception as e:
+            print(f"Error processing command: {e}")
+            return False
 
     async def _process_query(self, query: str):
         if await self._process_command(query):
@@ -89,55 +92,26 @@ class CliChat(Chat):
         self.messages.append({"role": "user", "content": prompt})
 
 
-def convert_prompt_message_to_message_param(
+def convert_prompt_message_to_dict(
     prompt_message: "PromptMessage",
-) -> MessageParam:
+) -> dict:
     role = "user" if prompt_message.role == "user" else "assistant"
-
     content = prompt_message.content
 
-    # Check if content is a dict-like object with a "type" field
-    if isinstance(content, dict) or hasattr(content, "__dict__"):
-        content_type = (
-            content.get("type", None)
-            if isinstance(content, dict)
-            else getattr(content, "type", None)
-        )
-        if content_type == "text":
-            content_text = (
-                content.get("text", "")
-                if isinstance(content, dict)
-                else getattr(content, "text", "")
-            )
-            return {"role": role, "content": content_text}
-
-    if isinstance(content, list):
-        text_blocks = []
-        for item in content:
-            # Check if item is a dict-like object with a "type" field
-            if isinstance(item, dict) or hasattr(item, "__dict__"):
-                item_type = (
-                    item.get("type", None)
-                    if isinstance(item, dict)
-                    else getattr(item, "type", None)
-                )
-                if item_type == "text":
-                    item_text = (
-                        item.get("text", "")
-                        if isinstance(item, dict)
-                        else getattr(item, "text", "")
-                    )
-                    text_blocks.append({"type": "text", "text": item_text})
-
-        if text_blocks:
-            return {"role": role, "content": text_blocks}
-
-    return {"role": role, "content": ""}
+    # Simplify content extraction for OpenAI
+    if isinstance(content, dict):
+         if content.get("type") == "text":
+             return {"role": role, "content": content.get("text", "")}
+    
+    if hasattr(content, "text"):
+        return {"role": role, "content": content.text}
+        
+    return {"role": role, "content": str(content)}
 
 
-def convert_prompt_messages_to_message_params(
+def convert_prompt_messages_to_dicts(
     prompt_messages: List[PromptMessage],
-) -> List[MessageParam]:
+) -> List[dict]:
     return [
-        convert_prompt_message_to_message_param(msg) for msg in prompt_messages
+        convert_prompt_message_to_dict(msg) for msg in prompt_messages
     ]
