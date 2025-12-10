@@ -4,12 +4,11 @@ from google.generativeai.types import content_types
 from collections.abc import Iterable
 
 class Claude:
-    def __init__(self, model: str = "gemini-1.5-flash"):
+    def __init__(self, model: str = "gemini-flash-latest"):
         genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
         self.model = genai.GenerativeModel(model)
 
     def add_user_message(self, messages: list, message):
-        # Gemini expects simple string parts for user text
         content = message
         if isinstance(message, list):
             content = ""
@@ -17,16 +16,35 @@ class Claude:
                  if isinstance(block, dict) and block.get("type") == "text":
                      content += block.get("text", "") + "\n"
         
+        # Store as a clean dictionary
         messages.append({"role": "user", "parts": [str(content)]})
 
     def add_assistant_message(self, messages: list, response):
-        # We store the raw Gemini response object or a dict reconstruction
-        if response.parts:
-            messages.append(response)
+        # FIX: Extract the actual parts from the response object
+        # and store them as a simple dictionary.
+        try:
+            if hasattr(response, 'parts') and response.parts:
+                clean_parts = []
+                for part in response.parts:
+                    if part.text:
+                        clean_parts.append({"text": part.text})
+                    elif part.function_call:
+                        clean_parts.append({
+                            "function_call": {
+                                "name": part.function_call.name,
+                                "args": dict(part.function_call.args)
+                            }
+                        })
+                
+                if clean_parts:
+                    messages.append({
+                        "role": "model",
+                        "parts": clean_parts
+                    })
+        except Exception as e:
+            print(f"Warning: Failed to add assistant message: {e}")
 
     def add_tool_output_messages(self, messages: list, tool_outputs: list):
-        # Gemini expects tool outputs in a 'function_response' part
-        # The tool_outputs passed here will be properly formatted from tools.py
         messages.append({
             "role": "function",
             "parts": tool_outputs
@@ -36,25 +54,14 @@ class Claude:
         try:
             return response.text
         except ValueError:
-            # Sometimes response is just a function call with no text
             return ""
 
-    def chat(
-        self,
-        messages: list,
-        system: str = None,
-        tools: list = None,
-    ):
-        # Configure the model with tools if present
-        # Note: In a real app, we should instantiate the model once with tools, 
-        # but for this stateless loop, we re-instantiate or pass tools to generate_content
-        
-        # We need to use a fresh model object if we are changing tools dynamically
+    def chat(self, messages: list, system: str = None, tools: list = None):
         current_model = self.model
         if tools:
             current_model = genai.GenerativeModel(
                 self.model.model_name, 
-                tools=[tools], # Gemini expects a list of tool lists/functions
+                tools=[tools], 
                 system_instruction=system
             )
         elif system:

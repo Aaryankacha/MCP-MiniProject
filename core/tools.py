@@ -2,9 +2,24 @@ import json
 from typing import Optional, List, Any
 from mcp.types import CallToolResult, TextContent
 from mcp_client import MCPClient
-from google.protobuf import struct_pb2
 
 class ToolManager:
+    @classmethod
+    def _sanitize_schema(cls, schema: Any) -> Any:
+        """
+        Recursively removes 'title' fields from a JSON schema dict.
+        Google's Gemini SDK crashes if it sees 'title' in the schema.
+        """
+        if isinstance(schema, dict):
+            return {
+                k: cls._sanitize_schema(v)
+                for k, v in schema.items()
+                if k != "title"  # <--- The fix: remove 'title'
+            }
+        elif isinstance(schema, list):
+            return [cls._sanitize_schema(i) for i in schema]
+        return schema
+
     @classmethod
     async def get_all_tools(cls, clients: dict[str, MCPClient]) -> list[dict]:
         """Gets all tools and formats them for Gemini."""
@@ -12,11 +27,13 @@ class ToolManager:
         for client in clients.values():
             tool_models = await client.list_tools()
             for t in tool_models:
-                # Gemini FunctionDeclaration format
+                # Clean the schema before passing to Google
+                clean_schema = cls._sanitize_schema(t.inputSchema)
+                
                 gemini_tools.append({
                     "name": t.name,
                     "description": t.description,
-                    "parameters": t.inputSchema # MCP schema maps directly
+                    "parameters": clean_schema 
                 })
         return gemini_tools
 
@@ -82,7 +99,6 @@ class ToolManager:
                     result_content = {"error": str(e)}
 
             # Build the Gemini FunctionResponse part
-            # It requires 'name' and 'response' (which must be a dict)
             tool_result_parts.append({
                 "function_response": {
                     "name": tool_name,

@@ -5,6 +5,7 @@ from core.chat import Chat
 from core.claude import Claude
 from mcp_client import MCPClient
 
+
 class CliChat(Chat):
     def __init__(
         self,
@@ -52,14 +53,15 @@ class CliChat(Chat):
         words = query.split()
         command = words[0].replace("/", "")
         
-        # Guard clause if no doc_id is provided
+        # Safe handling if no argument provided
         doc_arg = words[1] if len(words) > 1 else ""
 
         try:
             messages = await self.doc_client.get_prompt(
                 command, {"doc_id": doc_arg}
             )
-            self.messages += convert_prompt_messages_to_dicts(messages)
+            # Use the helper to convert prompts to Gemini format
+            self.messages += convert_prompt_messages_to_gemini(messages)
             return True
         except Exception as e:
             print(f"Error processing command: {e}")
@@ -89,29 +91,41 @@ class CliChat(Chat):
         Don't refer to or mention the provided context in any way - just use it to inform your answer.
         """
 
-        self.messages.append({"role": "user", "content": prompt})
+        # FIX: Use the service to add the message correctly (handles 'parts' vs 'content')
+        self.claude_service.add_user_message(self.messages, prompt)
 
 
-def convert_prompt_message_to_dict(
+def convert_prompt_message_to_gemini(
     prompt_message: "PromptMessage",
 ) -> dict:
-    role = "user" if prompt_message.role == "user" else "assistant"
+    # Gemini uses 'model' instead of 'assistant'
+    role = "user" if prompt_message.role == "user" else "model"
     content = prompt_message.content
-
-    # Simplify content extraction for OpenAI
-    if isinstance(content, dict):
-         if content.get("type") == "text":
-             return {"role": role, "content": content.get("text", "")}
     
-    if hasattr(content, "text"):
-        return {"role": role, "content": content.text}
-        
-    return {"role": role, "content": str(content)}
+    text_content = ""
+
+    # Handle various content shapes (string, dict, object)
+    if isinstance(content, str):
+        text_content = content
+    elif hasattr(content, "text"):
+        text_content = content.text
+    elif isinstance(content, dict):
+        text_content = content.get("text", "")
+    elif isinstance(content, list):
+         # Flatten list of blocks into one string
+         for block in content:
+             if isinstance(block, dict):
+                 text_content += block.get("text", "")
+             elif hasattr(block, "text"):
+                 text_content += block.text
+
+    # Gemini Format: {'role': '...', 'parts': ['...']}
+    return {"role": role, "parts": [text_content]}
 
 
-def convert_prompt_messages_to_dicts(
+def convert_prompt_messages_to_gemini(
     prompt_messages: List[PromptMessage],
 ) -> List[dict]:
     return [
-        convert_prompt_message_to_dict(msg) for msg in prompt_messages
+        convert_prompt_message_to_gemini(msg) for msg in prompt_messages
     ]
