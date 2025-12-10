@@ -66,6 +66,7 @@ class MCPClient:
         content = ""
         if result.contents:
             for item in result.contents:
+                # Check if the item has a 'text' attribute directly
                 if hasattr(item, "text"):
                     content += item.text
         return content

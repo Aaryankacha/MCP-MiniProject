@@ -36,10 +36,16 @@ class CliChat(Chat):
         doc_ids = await self.list_docs_ids()
         mentioned_docs: list[Tuple[str, str]] = []
 
-        for doc_id in doc_ids:
-            if doc_id in mentions:
+        for doc_id in mentions:
+            try:
+                # Attempt to fetch the document
                 content = await self.get_doc_content(doc_id)
                 mentioned_docs.append((doc_id, content))
+            except Exception:
+                # If fetch fails (e.g. doc doesn't exist), just ignore it
+                # or print a small warning to the console
+                print(f"Warning: Could not find document '@{doc_id}'")
+                continue
 
         return "".join(
             f'\n<document id="{doc_id}">\n{content}\n</document>\n'
