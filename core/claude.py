@@ -1,75 +1,70 @@
 import os
-from openai import OpenAI
-from typing import List, Optional, Any
+import google.generativeai as genai
+from google.generativeai.types import content_types
+from collections.abc import Iterable
 
 class Claude:
-    def __init__(self, model: str = "gpt-4o"):
-        # Ensure OPENAI_API_KEY is in your .env
-        self.client = OpenAI()
-        self.model = model
+    def __init__(self, model: str = "gemini-1.5-flash"):
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        self.model = genai.GenerativeModel(model)
 
     def add_user_message(self, messages: list, message):
-        """Adds a user message to history. Handles both strings and list of blocks."""
+        # Gemini expects simple string parts for user text
         content = message
-        # If it's a list (previously Anthropic blocks), join the text parts
         if isinstance(message, list):
             content = ""
             for block in message:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    content += block.get("text", "") + "\n"
+                 if isinstance(block, dict) and block.get("type") == "text":
+                     content += block.get("text", "") + "\n"
         
-        # OpenAI expects a simple string for content usually, unless using vision.
-        messages.append({"role": "user", "content": str(content)})
+        messages.append({"role": "user", "parts": [str(content)]})
 
-    def add_assistant_message(self, messages: list, message):
-        """Adds the assistant's response to history."""
-        # OpenAI returns an object, we need to convert it to a dict for the history
-        msg_dict = {
-            "role": "assistant",
-            "content": message.content
-        }
-        if message.tool_calls:
-            msg_dict["tool_calls"] = message.tool_calls
-        
-        messages.append(msg_dict)
+    def add_assistant_message(self, messages: list, response):
+        # We store the raw Gemini response object or a dict reconstruction
+        if response.parts:
+            messages.append(response)
 
     def add_tool_output_messages(self, messages: list, tool_outputs: list):
-        """Specific helper for OpenAI tool outputs."""
-        messages.extend(tool_outputs)
+        # Gemini expects tool outputs in a 'function_response' part
+        # The tool_outputs passed here will be properly formatted from tools.py
+        messages.append({
+            "role": "function",
+            "parts": tool_outputs
+        })
 
-    def text_from_message(self, message):
-        """Extracts text content from the response object."""
-        return message.content if message.content else ""
+    def text_from_message(self, response):
+        try:
+            return response.text
+        except ValueError:
+            # Sometimes response is just a function call with no text
+            return ""
 
     def chat(
         self,
-        messages: List[dict],
-        system: Optional[str] = None,
-        temperature: float = 1.0,
-        stop_sequences: List[str] = [],
-        tools: Optional[List[dict]] = None,
-        thinking: bool = False, # OpenAI doesn't support 'thinking' param yet
-        thinking_budget: int = 1024,
+        messages: list,
+        system: str = None,
+        tools: list = None,
     ):
-        # Prepare messages
-        final_messages = messages.copy()
+        # Configure the model with tools if present
+        # Note: In a real app, we should instantiate the model once with tools, 
+        # but for this stateless loop, we re-instantiate or pass tools to generate_content
         
-        # Handle system prompt (OpenAI expects it as the first message)
-        if system:
-            final_messages.insert(0, {"role": "system", "content": system})
-
-        params = {
-            "model": self.model,
-            "messages": final_messages,
-            "temperature": temperature,
-        }
-
-        if stop_sequences:
-            params["stop"] = stop_sequences
-
+        # We need to use a fresh model object if we are changing tools dynamically
+        current_model = self.model
         if tools:
-            params["tools"] = tools
-            params["tool_choice"] = "auto"
+            current_model = genai.GenerativeModel(
+                self.model.model_name, 
+                tools=[tools], # Gemini expects a list of tool lists/functions
+                system_instruction=system
+            )
+        elif system:
+             current_model = genai.GenerativeModel(
+                self.model.model_name, 
+                system_instruction=system
+            )
 
-        response = self.client.chat.completions.create(**params)
-        return response.choices[0].message
+        response = current_model.generate_content(
+            messages,
+            request_options={"timeout": 600}
+        )
+        return response

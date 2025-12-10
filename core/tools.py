@@ -1,97 +1,93 @@
 import json
-from typing import Optional, Literal, List, Any
-from mcp.types import CallToolResult, Tool, TextContent
+from typing import Optional, List, Any
+from mcp.types import CallToolResult, TextContent
 from mcp_client import MCPClient
+from google.protobuf import struct_pb2
 
 class ToolManager:
     @classmethod
     async def get_all_tools(cls, clients: dict[str, MCPClient]) -> list[dict]:
-        """Gets all tools and formats them for OpenAI function calling."""
-        openai_tools = []
+        """Gets all tools and formats them for Gemini."""
+        gemini_tools = []
         for client in clients.values():
             tool_models = await client.list_tools()
             for t in tool_models:
-                openai_tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.inputSchema  # MCP schema maps directly to parameters
-                    }
+                # Gemini FunctionDeclaration format
+                gemini_tools.append({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.inputSchema # MCP schema maps directly
                 })
-        return openai_tools
+        return gemini_tools
 
     @classmethod
     async def _find_client_with_tool(
         cls, clients: list[MCPClient], tool_name: str
     ) -> Optional[MCPClient]:
-        """Finds the first client that has the specified tool."""
         for client in clients:
             tools = await client.list_tools()
-            tool = next((t for t in tools if t.name == tool_name), None)
-            if tool:
+            if any(t.name == tool_name for t in tools):
                 return client
         return None
 
     @classmethod
     async def execute_tool_requests(
-        cls, clients: dict[str, MCPClient], message: Any
+        cls, clients: dict[str, MCPClient], response: Any
     ) -> List[dict]:
         """
-        Executes tool calls from an OpenAI response message.
-        Returns a list of messages with role='tool'.
+        Executes function calls from a Gemini response.
+        Returns a list of 'function_response' parts.
         """
-        if not message.tool_calls:
+        # Check if the first part is a function call
+        if not response.parts:
+            return []
+            
+        function_calls = []
+        for part in response.parts:
+            if fn := part.function_call:
+                function_calls.append(fn)
+
+        if not function_calls:
             return []
 
-        tool_result_messages = []
+        tool_result_parts = []
         
-        for tool_call in message.tool_calls:
-            tool_use_id = tool_call.id
-            tool_name = tool_call.function.name
-            tool_args_json = tool_call.function.arguments
-            
-            # Parse arguments
-            try:
-                tool_input = json.loads(tool_args_json)
-            except json.JSONDecodeError:
-                tool_input = {}
+        for fn in function_calls:
+            tool_name = fn.name
+            # Convert MapComposite to dict
+            tool_args = dict(fn.args)
 
             client = await cls._find_client_with_tool(
                 list(clients.values()), tool_name
             )
 
-            content_result = ""
-            is_error = False
-
+            result_content = {}
+            
             if not client:
-                content_result = "Could not find that tool"
-                is_error = True
+                result_content = {"error": "Tool not found"}
             else:
                 try:
                     tool_output: CallToolResult | None = await client.call_tool(
-                        tool_name, tool_input
+                        tool_name, tool_args
                     )
-                    items = []
-                    if tool_output:
-                        items = tool_output.content
                     
-                    # Extract text from content items
-                    content_list = [
-                        item.text for item in items if isinstance(item, TextContent)
-                    ]
-                    content_result = json.dumps(content_list)
-                    is_error = tool_output.isError if tool_output else False
+                    # Extract text content
+                    texts = []
+                    if tool_output and tool_output.content:
+                        texts = [item.text for item in tool_output.content if isinstance(item, TextContent)]
+                    
+                    result_content = {"result": "\n".join(texts)}
                     
                 except Exception as e:
-                    content_result = json.dumps({"error": f"Error executing tool '{tool_name}': {e}"})
-                    is_error = True
+                    result_content = {"error": str(e)}
 
-            # OpenAI expects the result in a message with role='tool'
-            tool_result_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_use_id,
-                "content": content_result
+            # Build the Gemini FunctionResponse part
+            # It requires 'name' and 'response' (which must be a dict)
+            tool_result_parts.append({
+                "function_response": {
+                    "name": tool_name,
+                    "response": result_content
+                }
             })
 
-        return tool_result_messages
+        return tool_result_parts
