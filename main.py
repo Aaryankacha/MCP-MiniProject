@@ -11,14 +11,12 @@ from core.cli import CliApp
 
 load_dotenv()
 
-# Google Config
 google_model = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
 google_api_key = os.getenv("GOOGLE_API_KEY", "")
 
 assert google_api_key, "Error: GOOGLE_API_KEY cannot be empty. Update .env"
 
 async def main():
-    # Initialize our Google wrapper
     claude_service = Claude(model=google_model)
 
     server_scripts = sys.argv[1:]
