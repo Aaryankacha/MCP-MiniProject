@@ -38,12 +38,10 @@ class CliChat(Chat):
 
         for doc_id in mentions:
             try:
-                # Attempt to fetch the document
                 content = await self.get_doc_content(doc_id)
                 mentioned_docs.append((doc_id, content))
             except Exception:
-                # If fetch fails (e.g. doc doesn't exist), just ignore it
-                # or print a small warning to the console
+         
                 print(f"Warning: Could not find document '@{doc_id}'")
                 continue
 
@@ -59,14 +57,12 @@ class CliChat(Chat):
         words = query.split()
         command = words[0].replace("/", "")
         
-        # Safe handling if no argument provided
         doc_arg = words[1] if len(words) > 1 else ""
 
         try:
             messages = await self.doc_client.get_prompt(
                 command, {"doc_id": doc_arg}
             )
-            # Use the helper to convert prompts to Gemini format
             self.messages += convert_prompt_messages_to_gemini(messages)
             return True
         except Exception as e:
@@ -97,20 +93,17 @@ class CliChat(Chat):
         Don't refer to or mention the provided context in any way - just use it to inform your answer.
         """
 
-        # FIX: Use the service to add the message correctly (handles 'parts' vs 'content')
         self.claude_service.add_user_message(self.messages, prompt)
 
 
 def convert_prompt_message_to_gemini(
     prompt_message: "PromptMessage",
 ) -> dict:
-    # Gemini uses 'model' instead of 'assistant'
     role = "user" if prompt_message.role == "user" else "model"
     content = prompt_message.content
     
     text_content = ""
 
-    # Handle various content shapes (string, dict, object)
     if isinstance(content, str):
         text_content = content
     elif hasattr(content, "text"):
@@ -118,14 +111,12 @@ def convert_prompt_message_to_gemini(
     elif isinstance(content, dict):
         text_content = content.get("text", "")
     elif isinstance(content, list):
-         # Flatten list of blocks into one string
          for block in content:
              if isinstance(block, dict):
                  text_content += block.get("text", "")
              elif hasattr(block, "text"):
                  text_content += block.text
 
-    # Gemini Format: {'role': '...', 'parts': ['...']}
     return {"role": role, "parts": [text_content]}
 
 

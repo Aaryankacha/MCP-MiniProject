@@ -2,20 +2,14 @@ import os
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
-# Initialize the server
 mcp = FastMCP("LocalFileMCP", log_level="ERROR")
-
-# Define where our real documents live
-# This looks for a folder named "documents" in the same directory as this script
 DOCS_DIR = Path(__file__).parent / "documents"
 
-# Ensure the directory exists
 if not DOCS_DIR.exists():
     DOCS_DIR.mkdir()
 
 def _get_path(doc_id: str) -> Path:
     """Helper to safely get the file path."""
-    # Security check: prevent users from accessing files outside DOCS_DIR
     safe_path = (DOCS_DIR / doc_id).resolve()
     if not str(safe_path).startswith(str(DOCS_DIR.resolve())):
         raise ValueError("Access denied: Cannot access files outside 'documents' folder")
@@ -29,7 +23,6 @@ def read_doc(doc_id: str) -> str:
     if not file_path.exists():
         raise ValueError(f"Document {doc_id} not found")
         
-    # Read text from the file
     try:
         return file_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -53,7 +46,6 @@ def list_documents() -> list[str]:
     """List all filenames in the documents folder."""
     if not DOCS_DIR.exists():
         return []
-    # Return a list of filenames (e.g., ["notes.txt", "readme.md"])
     return [f.name for f in DOCS_DIR.iterdir() if f.is_file()]
 
 @mcp.resource("docs://documents/{doc_id}")

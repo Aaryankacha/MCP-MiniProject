@@ -62,11 +62,9 @@ class MCPClient:
     async def read_resource(self, uri: str) -> str:
         """Reads a resource and returns its text content."""
         result = await self.session().read_resource(uri)
-        # Combine all text content chunks
         content = ""
         if result.contents:
             for item in result.contents:
-                # Check if the item has a 'text' attribute directly
                 if hasattr(item, "text"):
                     content += item.text
         return content
@@ -83,10 +81,9 @@ class MCPClient:
         await self.cleanup()
 
 
-# For testing
 async def main():
     async with MCPClient(
-        command="python", # Changed to python for standard testing
+        command="python", 
         args=["mcp_server.py"],
     ) as _client:
         pass
